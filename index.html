@@ -1,0 +1,1516 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LLM serving notes: chapters 1 and 2</title>
+<meta name="description" content="Study notes on chapters 1 and 2 of Hands-On LLM Serving and Optimization: model serving basics, serving paradigms, transformers, KV cache, prefill and decode, streaming and batching.">
+<script>
+/* Set the theme before first paint: saved choice wins, otherwise follow the system */
+(function () {
+  var saved = null;
+  try { saved = localStorage.getItem('theme'); } catch (e) {}
+  var dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Sofia+Sans+Condensed:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Palette lifted from the book's own diagrams, so the figures sit naturally on the page */
+  --paper: #F2F5F9;
+  --card: #FFFFFF;
+  --ink: #16223B;
+  --muted: #5A6781;
+  --line: #D5DDE8;
+  --blue: #2A6DB0;
+  --blue-soft: #DDEAF6;
+  --orange: #E58A1F;
+  --peach: #FBE6CB;
+  --green: #2F9B6A;
+  --green-soft: #DFF2E8;
+  --red: #BE2A30;
+  --red-soft: #F8E1E2;
+  --purple: #8A2FB0;
+  --code-bg: #16223B;
+  --code-ink: #E6EDF7;
+  --code-inline: #E4EAF2;
+  --chapter-bg: #16223B;
+  --plate: #FFFFFF;
+  color-scheme: light;
+
+  --display: "Sofia Sans Condensed", "Arial Narrow", sans-serif;
+  --body: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+
+  --sidebar: 17rem;
+  --measure: 46rem;
+}
+
+/* Dark theme: same roles, re-tuned for a deep navy page */
+:root[data-theme="dark"] {
+  --paper: #0F1726;
+  --card: #172235;
+  --ink: #E6ECF5;
+  --muted: #9AA8C0;
+  --line: #2A3850;
+  --blue: #7DB4EC;
+  --blue-soft: #1B3050;
+  --orange: #F0A040;
+  --peach: #5C4318;
+  --green: #4FC08D;
+  --green-soft: #15362B;
+  --red: #EF6B70;
+  --red-soft: #3D1D22;
+  --purple: #B76BD8;
+  --code-bg: #0A101C;
+  --code-ink: #E6EDF7;
+  --code-inline: #22304A;
+  --chapter-bg: #1C2C49;
+  --plate: #172235;
+  color-scheme: dark;
+}
+/* Figures are dark-on-white artwork: flip lightness, keep hues, and let the white become the plate colour */
+:root[data-theme="dark"] figure img { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
+:root[data-theme="dark"] pre { border: 1px solid var(--line); }
+:root[data-theme="dark"] .chapter-open { border: 1px solid var(--line); }
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: 1.0625rem;
+  line-height: 1.62;
+  -webkit-text-size-adjust: 100%;
+}
+a { color: var(--blue); text-underline-offset: 0.18em; }
+a:focus-visible, summary:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; border-radius: 3px; }
+
+/* ---------- Layout ---------- */
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar) minmax(0, 1fr);
+  max-width: 78rem;
+  margin: 0 auto;
+}
+.side {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 2rem 1.25rem 2rem 1.5rem;
+  border-right: 1px solid var(--line);
+}
+.theme-toggle {
+  position: absolute;
+  top: 1.9rem;
+  right: 1.25rem;
+  font: 500 0.82rem/1 var(--body);
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  padding: 0.45rem 0.6rem;
+  cursor: pointer;
+}
+.theme-toggle:hover { border-color: var(--muted); }
+.theme-toggle:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+main { padding: 0 2.5rem 5rem; min-width: 0; }
+main > section, main > header, main > footer, main > .chapter-open { max-width: var(--measure); }
+
+/* ---------- Sidebar ---------- */
+.toc > summary {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  cursor: pointer;
+  list-style: none;
+}
+.toc > summary::-webkit-details-marker { display: none; }
+.toc h2 {
+  font-family: var(--display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.4rem;
+  line-height: 1.2;
+}
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc li a {
+  display: block;
+  padding: 0.22rem 0 0.22rem 0.75rem;
+  border-left: 3px solid transparent;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.toc li a:hover { color: var(--ink); }
+.toc li a.active { color: var(--ink); border-left-color: var(--orange); font-weight: 600; }
+
+/* ---------- Hero ---------- */
+.hero { padding: 3.5rem 0 2.5rem; }
+.hero h1 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(3rem, 8.5vw, 5.75rem);
+  line-height: 0.92;
+  letter-spacing: -0.01em;
+  margin: 0 0 1.75rem;
+}
+.stream {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  list-style: none;
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(1.05rem, 2.4vw, 1.4rem);
+}
+.stream li {
+  padding: 0.3rem 0.7rem;
+  border: 2px solid var(--ink);
+  border-radius: 0.45rem;
+  line-height: 1.2;
+  color: #16223B;
+}
+.stream .prompt { background: var(--card); color: var(--ink); border-style: dashed; font-weight: 600; }
+/* Token chips keep the book's diagram colours in both themes */
+.stream .t1 { background: #BE2A30; color: #fff; }
+.stream .t2 { background: #A9CDE9; }
+.stream .t3 { background: #E58A1F; }
+.stream .t4 { background: #8A2FB0; color: #fff; }
+.stream .gen { animation: token-in 0.35s ease-out both; }
+.stream .t1 { animation-delay: 0.5s; }
+.stream .t2 { animation-delay: 1.1s; }
+.stream .t3 { animation-delay: 1.7s; }
+.stream .t4 { animation-delay: 2.3s; }
+@keyframes token-in { from { opacity: 0; transform: translateX(-0.6rem); } }
+.hero .lede { font-size: 1.2rem; line-height: 1.5; margin: 0 0 1.25rem; max-width: 38rem; }
+.hero .source { color: var(--muted); font-size: 0.95rem; margin: 0; }
+
+/* ---------- Chapters and sections ---------- */
+.chapter-open {
+  margin-top: 3rem;
+  padding: 1.75rem 2rem 1.9rem;
+  background: var(--chapter-bg);
+  color: #fff;
+  border-radius: 0.6rem;
+}
+.chapter-open p { margin: 0; }
+.chapter-open .num { font-family: var(--display); font-weight: 700; font-size: 1.25rem; color: #A9CDE9; }
+.chapter-open h2 {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+  margin: 0.2rem 0 0.8rem;
+}
+.chapter-open .gist { color: #D5DDE8; max-width: 36rem; }
+
+section { padding-top: 2.75rem; }
+section > h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 2.1rem;
+  line-height: 1.08;
+  margin: 0 0 0.25rem;
+}
+.pages { color: var(--muted); font-size: 0.875rem; margin: 0 0 1.1rem; }
+h3 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 1.5rem;
+  line-height: 1.15;
+  margin: 2.25rem 0 0.5rem;
+}
+h4 { font-size: 1.0625rem; font-weight: 600; margin: 1.5rem 0 0.35rem; }
+p { margin: 0 0 1rem; }
+ul, ol { margin: 0 0 1rem; padding-left: 1.3rem; }
+li { margin-bottom: 0.35rem; }
+li > ul { margin-top: 0.35rem; }
+strong { font-weight: 600; }
+mark { background: var(--peach); color: inherit; padding: 0 0.2em; border-radius: 0.2em; }
+
+dl.terms { margin: 0 0 1rem; }
+dl.terms dt { font-weight: 600; margin-top: 0.7rem; }
+dl.terms dd { margin: 0.1rem 0 0 0; padding-left: 1rem; border-left: 3px solid var(--blue-soft); }
+
+/* ---------- Callouts ---------- */
+.note {
+  margin: 1.5rem 0;
+  padding: 0.95rem 1.15rem 1rem;
+  border-left: 5px solid var(--blue);
+  background: var(--blue-soft);
+  border-radius: 0 0.45rem 0.45rem 0;
+}
+.note > :last-child { margin-bottom: 0; }
+.note .label { font-weight: 600; margin-bottom: 0.3rem; }
+.note.key { border-left-color: var(--green); background: var(--green-soft); }
+.note.warn { border-left-color: var(--red); background: var(--red-soft); }
+
+/* ---------- Figures ---------- */
+figure { margin: 1.75rem 0; }
+figure a {
+  display: block;
+  background: var(--plate);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  padding: 1.1rem;
+}
+figure img {
+  display: block;
+  width: var(--w, 100%);
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+figcaption { color: var(--muted); font-size: 0.9rem; line-height: 1.45; margin-top: 0.55rem; }
+figcaption b { color: var(--ink); font-weight: 600; }
+
+/* ---------- Code ---------- */
+code {
+  font-family: var(--mono);
+  font-size: 0.875em;
+  background: var(--code-inline);
+  padding: 0.1em 0.35em;
+  border-radius: 0.25em;
+}
+pre {
+  margin: 1.25rem 0;
+  padding: 1rem 1.15rem;
+  background: var(--code-bg);
+  color: var(--code-ink);
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  font-size: 0.86rem;
+  line-height: 1.55;
+  tab-size: 4;
+}
+pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+pre .c { color: #94A7C4; }
+.code-title { font-size: 0.9rem; color: var(--muted); margin: 1.25rem 0 -0.75rem; }
+
+/* ---------- Tables ---------- */
+.table-wrap { overflow-x: auto; margin: 1.5rem 0; border: 1px solid var(--line); border-radius: 0.5rem; background: var(--card); }
+table { border-collapse: collapse; width: 100%; font-size: 0.94rem; line-height: 1.45; }
+caption { text-align: left; padding: 0.75rem 0.9rem 0.6rem; color: var(--muted); font-size: 0.9rem; }
+th, td { text-align: left; vertical-align: top; padding: 0.6rem 0.9rem; border-top: 1px solid var(--line); }
+thead th { background: var(--blue-soft); font-weight: 600; white-space: nowrap; }
+tbody th { font-weight: 600; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* ---------- Formula ---------- */
+.formula {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  text-align: center;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  font-size: 1.2rem;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.formula .frac { display: inline-flex; flex-direction: column; vertical-align: middle; text-align: center; line-height: 1.25; }
+.formula .frac span:first-child { border-bottom: 1.5px solid var(--ink); padding: 0 0.3em; }
+
+/* ---------- Two-up comparison ---------- */
+.versus { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.5rem 0; }
+.versus > div { background: var(--card); border: 1px solid var(--line); border-top: 5px solid var(--red); border-radius: 0.5rem; padding: 1rem 1.15rem; }
+.versus > div + div { border-top-color: var(--blue); }
+.versus h4 { margin: 0 0 0.4rem; font-family: var(--display); font-size: 1.35rem; font-weight: 700; }
+.versus ul { margin-bottom: 0; }
+
+/* ---------- Self-test ---------- */
+.quiz details { background: var(--card); border: 1px solid var(--line); border-radius: 0.5rem; margin-bottom: 0.6rem; }
+.quiz summary { cursor: pointer; padding: 0.75rem 1rem; font-weight: 500; }
+.quiz details[open] summary { border-bottom: 1px solid var(--line); }
+.quiz details > p, .quiz details > ul { margin: 0.75rem 1rem 0.9rem; }
+.quiz details > ul { padding-left: 1.3rem; }
+
+footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+
+/* ---------- Small screens ---------- */
+@media (max-width: 60rem) {
+  .shell { display: block; }
+  .side { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 1rem; }
+  .theme-toggle { top: 0.8rem; right: 1rem; }
+  .toc > summary::after { content: " (tap to open)"; font-family: var(--body); font-weight: 400; font-size: 0.85rem; color: var(--muted); }
+  .toc[open] > summary::after { content: " (tap to close)"; }
+  main { padding: 0 1rem 4rem; }
+  .hero { padding-top: 2rem; }
+  .chapter-open { padding: 1.4rem 1.25rem; }
+  .versus { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .stream .gen { animation: none; }
+}
+@media print {
+  .side { display: none; }
+  :root[data-theme="dark"] figure img { filter: none; mix-blend-mode: normal; }
+  .shell { display: block; }
+  body { background: #fff; font-size: 11pt; }
+  pre { white-space: pre-wrap; }
+  figure, .note, pre, table { break-inside: avoid; }
+  .quiz details > * { display: block; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<aside class="side">
+  <button class="theme-toggle" type="button" hidden>Dark theme</button>
+  <details class="toc" open>
+    <summary>Contents</summary>
+    <nav aria-label="Contents">
+      <h2>1. Model serving and optimization</h2>
+      <ol>
+        <li><a href="#c1-anatomy">Anatomy of a model</a></li>
+        <li><a href="#c1-lifecycle">Model lifecycle</a></li>
+        <li><a href="#c1-what">What model serving is</a></li>
+        <li><a href="#c1-why-study">Why study it</a></li>
+        <li><a href="#c1-why-optimize">Why optimize it</a></li>
+        <li><a href="#c1-on-device">On-device serving</a></li>
+        <li><a href="#c1-single">Single-model service</a></li>
+        <li><a href="#c1-multi">Multi-model service</a></li>
+        <li><a href="#c1-platforms">Serving platforms</a></li>
+        <li><a href="#c1-recap">Recap and self-test</a></li>
+      </ol>
+      <h2>2. Large language model serving</h2>
+      <ol>
+        <li><a href="#c2-evolution">How LLMs got here</a></li>
+        <li><a href="#c2-autoregressive">Autoregressive generation</a></li>
+        <li><a href="#c2-architecture">Decoder-only architecture</a></li>
+        <li><a href="#c2-attention">Attention</a></li>
+        <li><a href="#c2-walkthrough">Generation, line by line</a></li>
+        <li><a href="#c2-kv-cache">KV cache</a></li>
+        <li><a href="#c2-prefill-decode">Prefill and decode</a></li>
+        <li><a href="#c2-frameworks">Serving with vLLM</a></li>
+        <li><a href="#c2-streaming">Streaming</a></li>
+        <li><a href="#c2-batching">Batching</a></li>
+        <li><a href="#c2-recap">Recap and self-test</a></li>
+      </ol>
+      <h2>Reference</h2>
+      <ol>
+        <li><a href="#numbers">Numbers worth remembering</a></li>
+        <li><a href="#glossary">Glossary</a></li>
+      </ol>
+    </nav>
+  </details>
+</aside>
+
+<main>
+
+<header class="hero">
+  <h1>LLM serving notes</h1>
+  <ul class="stream" aria-label="A prompt followed by four generated tokens: Washington, D.C., is, the">
+    <li class="prompt">Write a short introduction about US capital city.</li>
+    <li class="gen t1">Washington</li>
+    <li class="gen t2">D.C.</li>
+    <li class="gen t3">is</li>
+    <li class="gen t4">the</li>
+  </ul>
+  <p class="lede">An LLM writes one token at a time and feeds each new token back in as input. Most of what makes LLMs hard and expensive to serve follows from that loop.</p>
+  <p class="source">My notes on chapters 1 and 2 of <cite>Hands-On LLM Serving and Optimization</cite> by Chi Wang and Peiheng Hu (O’Reilly, 2026). Page numbers refer to the print edition.</p>
+</header>
+
+<!-- ======================= CHAPTER 1 ======================= -->
+<div class="chapter-open" id="ch1">
+  <p class="num">Chapter 1</p>
+  <h2>Introduction to model serving and optimization</h2>
+  <p class="gist">What a model is from an engineer’s point of view, what serving it means, why it is worth understanding even if you buy it from a vendor, and the four common ways to serve models.</p>
+</div>
+
+<section id="c1-intro" aria-label="Chapter 1 opening idea">
+  <div class="note key">
+    <p class="label">The one-line idea</p>
+    <p>Model serving is the <strong>supply chain</strong> of AI. A trained model has little business value until it reaches users with the right latency, reliability and cost. Recommendations at Amazon and Netflix, fraud checks at banks and airline chatbots all stop working when serving goes down.</p>
+  </div>
+  <p><strong>Model serving</strong> makes a model available to users, applications and other systems (through APIs, web services or integrated workflows) so it can produce predictions on new, unseen data. Those predictions are called <strong>inferences</strong>. The book uses <em>serving</em>, <em>inference</em> and <em>prediction</em> interchangeably.</p>
+  <p>The authors name three reasons people find the topic intimidating: it assumes you already know model training well, there is no clear path from a getting-started tutorial to running a serious system, and there are too many frameworks, libraries and vendors to choose from.</p>
+</section>
+
+<section id="c1-anatomy">
+  <h2>Anatomy of a model</h2>
+  <p class="pages">Pages 2 to 5</p>
+  <p>In serving we mostly treat a model as a black box: a set of executable files produced by training. Those files fall into three groups.</p>
+  <dl class="terms">
+    <dt>Model data</dt>
+    <dd>Weights and biases (what training learned) plus configuration: metadata needed to run the model, such as embeddings, label classes, <code>max_batch_size</code>, and the input and output tensors.</dd>
+    <dt>Model architecture</dt>
+    <dd>The structure: the types and number of layers, how they connect, and the operations they perform. It decides how input becomes output.</dd>
+    <dt>Model execution code</dt>
+    <dd>What actually runs. It builds the architecture inside the serving framework, loads the weights, and runs predictions.</dd>
+  </dl>
+  <figure style="--w: 330px">
+    <a href="images/fig-1-01.png"><img src="images/fig-1-01.png" width="649" height="662" loading="lazy" alt="Diagram of a model made of three parts: execution code (Model.py), model data (weights, biases, configuration, classes) and architecture (a small neural network)."></a>
+    <figcaption><b>Figure 1-1.</b> A model is made of architecture, execution code and data.</figcaption>
+  </figure>
+  <div class="note key">
+    <p class="label">Models are programs, not static data</p>
+    <p>A model is not a passive data file. It carries execution logic and metadata, so think of it as an executable program that takes input and produces decisions.</p>
+  </div>
+
+  <h3>The three parts in PyTorch</h3>
+  <p class="code-title">Architecture: usually a copy of the class from the training code</p>
+<pre><code>class TheModelClass(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool  = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1   = nn.Linear(16 * 5 * 5, 120)
+        self.fc2   = nn.Linear(120, 84)
+        self.fc3   = nn.Linear(84, 10)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = x.view(-1, 16 * 5 * 5)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)</code></pre>
+  <p class="code-title">Data: weights and biases live in the <code>state_dict</code></p>
+<pre><code>torch.save(model.state_dict(), "model_weights.pt")</code></pre>
+  <p class="code-title">Execution code: build, load, switch to eval mode, predict</p>
+<pre><code>model = TheModelClass(*args, **kwargs)                     <span class="c"># initialise the architecture</span>
+model.load_state_dict(torch.load("model_weights.pt", weights_only=True))
+model.eval()                                               <span class="c"># evaluation mode</span>
+pred = model(inputs)                                       <span class="c"># run a prediction</span></code></pre>
+  <p>TensorFlow and other frameworks have different APIs, but the packaging idea is the same.</p>
+
+  <div class="note">
+    <p class="label">Keep architecture and weights in separate files</p>
+    <p>You can save everything in one file with <code>torch.save(model, "model.pt")</code>, but separating the class definition from the weights is more flexible. When the architecture changes between versions, some checkpoint parameters no longer line up with the new structure. These are <strong>nonmatching keys</strong>. PyTorch supports <strong>partial loading</strong>: compatible parameters load and the rest are skipped. That is how fine-tuning, adding layers and incremental architecture updates avoid retraining from scratch.</p>
+  </div>
+</section>
+
+<section id="c1-lifecycle">
+  <h2>Model lifecycle: from training to serving</h2>
+  <p class="pages">Pages 5 to 6</p>
+  <p>Training gets most of the attention, but a model only pays off once it is deployed, served reliably and run efficiently at scale.</p>
+  <ol>
+    <li><strong>Data collection.</strong> Gather raw data (user interactions, sensors, logs, documents, third parties), then clean, label and curate it.</li>
+    <li><strong>Training and fine-tuning.</strong> Learn patterns from the data. Today this often means pretraining a foundation model and fine-tuning it on domain data.</li>
+    <li><strong>Evaluation.</strong> Check offline metrics (accuracy, loss, task benchmarks) to decide whether the model is ready for production.</li>
+    <li><strong>Deployment.</strong> Package and release the model. It is now a software artifact that must be versioned, tested and integrated.</li>
+    <li><strong>Serving.</strong> Make it reachable through APIs or services so it can run inference on new data, in real time or at scale. <mark>This is the book’s focus.</mark></li>
+    <li><strong>Optimization and iteration.</strong> Keep improving performance, reliability and cost under live traffic. Production feedback drives more fine-tuning or retraining, which restarts the cycle.</li>
+  </ol>
+  <p>Training a model and running it in production are different jobs. The constraints and goals change as soon as real users arrive.</p>
+</section>
+
+<section id="c1-what">
+  <h2>What model serving is</h2>
+  <p class="pages">Pages 6 to 8</p>
+  <p>Deploying a model in a production environment and setting up the software and hardware so it can receive input, run inference and return results <strong>efficiently, scalably and reliably</strong>.</p>
+
+  <div class="table-wrap">
+    <table>
+      <caption>Three places serving can happen</caption>
+      <thead><tr><th>Where</th><th>Example</th><th>Why there</th></tr></thead>
+      <tbody>
+        <tr><th>Locally (on-device)</th><td>A warehouse robot running an object-detection model such as YOLO on a Raspberry Pi with a Coral TPU</td><td>The robot must see and decide instantly</td></tr>
+        <tr><th>In-cluster (on-premises)</th><td>Semantic document search: Sentence-BERT inside the company cluster produces embeddings for internal documents</td><td>Data security and compliance, with no large data transfers</td></tr>
+        <tr><th>Remotely (cloud)</th><td>A customer support chatbot that sends the query and relevant documents to an LLM on Amazon SageMaker Inference or OpenAI</td><td>The vendor hosts or provides the model</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <figure style="--w: 560px">
+    <a href="images/fig-1-02.png"><img src="images/fig-1-02.png" width="1175" height="477" loading="lazy" alt="A chatbot client sends a request through a load balancer to an LLM model running in vLLM inside a DJL serving image on an AWS SageMaker endpoint, and receives a response."></a>
+    <figcaption><b>Figure 1-2.</b> Serving an LLM for a chatbot app on a SageMaker inference endpoint.</figcaption>
+  </figure>
+
+  <h3>What serving engineers care about</h3>
+  <p>Frameworks such as vLLM and TensorRT-LLM handle model execution, so the focus moves away from model internals and onto these:</p>
+  <dl class="terms">
+    <dt>Deployment</dt><dd>Pick the right hardware and make the model (from the training pipeline or open source) available to take input and return predictions.</dd>
+    <dt>Scalability and availability</dt><dd>Handle thousands to millions of requests with a consistent experience.</dd>
+    <dt>Latency</dt><dd>Answer fast: milliseconds for real-time use cases.</dd>
+    <dt>Monitoring</dt><dd>Track model performance, data drift and system health.</dd>
+    <dt>Versioning</dt><dd>Update and roll back models without disrupting clients.</dd>
+    <dt>Security</dt><dd>Protect sensitive data and control who can reach the model.</dd>
+    <dt>Cost-to-serve</dt><dd><mark>The most decisive factor.</mark> It is the yardstick for comparing serving approaches.</dd>
+  </dl>
+  <p>The work relies on systems engineering, infrastructure design and end-to-end performance tuning so the model meets its business SLAs. It is not about inventing learning algorithms.</p>
+  <div class="note warn">
+    <p class="label">LLMs are the exception to the black-box rule</p>
+    <p>For LLMs you do need to understand the algorithm, especially Transformers. Every advance in LLM serving exists to remove a bottleneck in LLM execution, so knowing the architecture gives you the intuition for tuning throughput and latency.</p>
+  </div>
+</section>
+
+<section id="c1-why-study">
+  <h2>Why study model serving</h2>
+  <p class="pages">Pages 8 to 11</p>
+  <p>The book answers three objections.</p>
+
+  <h3>“We just use a cloud vendor”</h3>
+  <ul>
+    <li>Cloud hosting is a good choice in many cases: it handles hardware and patching and makes proofs of concept quick.</li>
+    <li>It still needs thought. There are many products and features to choose from, integration with your systems takes engineering work, and vendor services need tuning for your use case.</li>
+    <li>Vendor offerings are general-purpose. SageMaker alone has single-model and multi-model endpoints, each with different customisation, trade-offs and cost. Without understanding serving design it is easy to pick an option that costs more or limits you.</li>
+  </ul>
+
+  <h3>“Foundation model APIs are enough”</h3>
+  <ul>
+    <li><strong>Cost.</strong> Businesses rarely solve everything with one LLM. They use smaller, cheaper models where possible and keep LLMs for hard requests. Running an open source LLM on an AWS EC2 instance can be <strong>30% to 60% cheaper</strong> than a managed service such as SageMaker, and reserving the instance can bring a discount of around 70%.</li>
+    <li><strong>A typical chatbot is several models:</strong> a small intent classifier to triage questions, an embedding model to encode questions and search for answers, and an LLM to turn the request into actions (backend API calls) and write the reply.</li>
+    <li><strong>Privacy and security.</strong> Sensitive or proprietary data may force an in-house solution.</li>
+    <li><strong>Fine-tuned models.</strong> Most vendors either cannot serve your fine-tuned model or charge more for it. In early 2025 OpenAI charged 50% more. Meanwhile small models keep getting better and can be fine-tuned for faster, more consistent and cheaper results.</li>
+  </ul>
+
+  <h3>“Running our own stack is expensive”</h3>
+  <ul>
+    <li><strong>Education startup.</strong> A managed provider is the right start for validating the idea. As usage grows the bill becomes unsustainable, so moving to open source LLMs with an optimised serving framework cuts cost while keeping the experience good.</li>
+    <li><strong>CRM company.</strong> High request volume plus sensitive customer data (emails, Slack, calls, CRM records) makes full outsourcing risky and costly. An in-house stack lowers cost per inference, helps with GDPR and HIPAA, and gives control over latency.</li>
+    <li><strong>The other side.</strong> In-house serving needs up-front spending on specialised hardware and engineers who can run it. The decision depends on security needs, project maturity, expected scale and whether the organisation can sustain the operations.</li>
+  </ul>
+  <div class="note key">
+    <p class="label">There is no one-size-fits-all solution</p>
+    <p>No architecture is permanent. Algorithms and serving technology keep changing, so the goal is to understand the fundamentals well enough to judge new options and not be locked into one framework or vendor. Outsourcing is a fine starting point, and you keep re-checking whether in-house serving would win on cost, security and flexibility.</p>
+  </div>
+</section>
+
+<section id="c1-why-optimize">
+  <h2>Why optimize model serving, especially for LLMs</h2>
+  <p class="pages">Pages 11 to 15</p>
+  <p>A model that answers correctly looks finished. Under real load a naive LLM deployment fails in three ways: <strong>latency grows</strong>, <strong>throughput plateaus</strong> well below what the hardware can do, and <strong>cost scales linearly or worse</strong> with usage.</p>
+  <dl class="terms">
+    <dt>Throughput</dt><dd>How many predictions are processed per unit of time.</dd>
+    <dt>Latency</dt><dd>How long one prediction takes.</dd>
+    <dt>Model serving optimization</dt><dd>Improving serving performance: lower latency, higher throughput, better use of resources, with cost kept under control.</dd>
+  </dl>
+  <p>Scale of the problem: in 2023 Alphabet’s chairman John Hennessy told Reuters that an LLM request can cost about 10 times as much as a keyword search.</p>
+
+  <h3>Training frameworks and serving frameworks want different things</h3>
+  <div class="table-wrap">
+    <table>
+      <caption>Table 1-1. Model training compared with model serving</caption>
+      <thead><tr><th>Aspect</th><th>Training</th><th>Serving</th></tr></thead>
+      <tbody>
+        <tr><th>Lifecycle stage</th><td>Prepares the model</td><td>Deploys it to production</td></tr>
+        <tr><th>Objective</th><td>Learn the weights by minimising a loss on training data</td><td>Generate predictions on new input, efficiently</td></tr>
+        <tr><th>Computation</th><td>Very heavy: repeated weight updates with backpropagation and gradients</td><td>Forward pass only, with no backpropagation or weight updates</td></tr>
+        <tr><th>Throughput and latency</th><td>Wants high throughput (samples per second) with large batches in parallel</td><td>Wants low latency per request, often with single or small batches</td></tr>
+        <tr><th>Resources</th><td>Powerful GPUs or TPUs and distributed training. Llama 3 405B was trained on 16,384 NVIDIA H100 GPUs</td><td>Low-latency, resource-efficient execution on CPUs, edge devices or inference GPUs, using runtimes such as TensorRT and ONNX Runtime</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>So a training setup is the wrong tool for serving. Purpose-built serving frameworks include <strong>NVIDIA Triton Inference Server</strong>, <strong>vLLM</strong> and <strong>SGLang</strong>. Hugging Face Transformers and plain PyTorch are baselines designed mainly for training.</p>
+
+  <h3>Example: vLLM</h3>
+  <p>vLLM is an LLM serving engine from UC Berkeley’s Sky Lab, built for high throughput and low latency. It exposes many tuning knobs. The book’s example runs <code>openai/gpt-oss-20b</code> on H100 80 GB GPUs:</p>
+<pre><code>python -m vllm.entrypoints.openai.api_server \
+  --model openai/gpt-oss-20b \
+  --dtype bf16 \                      <span class="c"># model precision</span>
+  --gpu-memory-utilization 0.9 \
+  --max-num-seqs 16 \                 <span class="c"># max concurrent requests (batch size)</span>
+  --max-num-batched-tokens 16384 \
+  --tensor-parallel-size 2            <span class="c"># share the model across two GPUs</span></code></pre>
+  <p>PagedAttention, vLLM’s way of managing the KV cache, is on by default. Chapters 6 and 7 of the book explain these options.</p>
+
+  <figure>
+    <a href="images/fig-1-03.png"><img src="images/fig-1-03.png" width="1378" height="972" loading="lazy" alt="Four bar charts of serving throughput in requests per minute for Hugging Face, TGI and vLLM. With one output completion, LLaMA-13B on A100-40GB scores 6.4, 61.8 and 154.2, and LLaMA-7B on A10G scores 8.3, 50.4 and 112.2. With three parallel completions, the scores are 4.5, 19.2 and 67.2, and 6.2, 15.0 and 52.8."></a>
+    <figcaption><b>Figure 1-3.</b> vLLM throughput against Hugging Face Transformers (HF) and Text Generation Inference (TGI), adapted from Kwon et al., 2023.</figcaption>
+  </figure>
+  <div class="table-wrap">
+    <table>
+      <caption>What Figure 1-3 shows (vLLM team, 2023, using PagedAttention)</caption>
+      <thead><tr><th>Setting</th><th>vLLM vs HF</th><th>vLLM vs TGI</th></tr></thead>
+      <tbody>
+        <tr><th>One output completion per request</th><td>14 to 24 times higher throughput</td><td>2.2 to 2.5 times higher</td></tr>
+        <tr><th>Three parallel completions per request</th><td>8.5 to 15 times higher</td><td>3.3 to 3.5 times higher</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p class="label">Configuration alone can change performance by an order of magnitude</p>
+    <p>Every option in a serving framework is a possible optimisation. Hosting DeepSeek R1 on vLLM, the authors went from <strong>38 to 600 tokens per second (about 15 times)</strong> with two changes: enabling FP8 MLA kernels and increasing the batch size.</p>
+  </div>
+  <div class="note key">
+    <p class="label">What optimisation is for</p>
+    <p>For production LLM systems optimisation is required. The aim is to <strong>meet business SLAs for latency and throughput at a sustainable cost</strong>, and squeezing out extra speed is secondary to that. GPUs are expensive, so more throughput and lower latency on the same hardware changes the economics.</p>
+  </div>
+</section>
+
+<section id="c1-paradigms" aria-labelledby="c1-on-device">
+  <h2 id="c1-on-device">Serving paradigm 1: on-device (edge)</h2>
+  <p class="pages">Pages 15 to 19</p>
+  <p>The model runs directly on the user’s device (phone, drone, robot, camera, VR headset) where the data is produced, with no need for a constant connection.</p>
+  <dl class="terms">
+    <dt>Cost-effective</dt><dd>Less dependence on cloud infrastructure. A smart speaker recognising speech locally pays no per-call API fee.</dd>
+    <dt>Efficient</dt><dd>Fast responses and better power efficiency on AI-optimised hardware, such as real-time photo enhancement.</dd>
+    <dt>Private</dt><dd>Data never leaves the device, as with biometric data in a health app.</dd>
+    <dt>Personalised</dt><dd>The model can be tuned on the user’s own data on the device, like a keyboard learning a typing style without uploading keystrokes.</dd>
+  </dl>
+
+  <figure>
+    <a href="images/fig-1-04.png"><img src="images/fig-1-04.png" width="1426" height="934" loading="lazy" alt="Two panels. Panel a shows an on-device AI app: application logic calls a model wrapper (preprocess code, compiled model, postprocess code), which calls a model runtime such as TensorFlow Lite or ONNX, which runs on the operating system and hardware. Panel b shows the deployment workflow: compile the trained model to the target device, validate numerics, measure performance, then deploy."></a>
+    <figcaption><b>Figure 1-4.</b> (a) On-device AI app design and (b) the on-device model deployment workflow.</figcaption>
+  </figure>
+
+  <h3>Two key components</h3>
+  <dl class="terms">
+    <dt>Model runtime (B in the figure)</dt>
+    <dd>A framework that executes models efficiently on a given hardware platform. It sits between the trained model and the device hardware, hides differences across hardware and operating systems, and applies hardware-specific acceleration. Many runtimes support <strong>delegates</strong>, which hand compute-heavy operations from the CPU to a GPU or other accelerator. Popular runtimes: <strong>LiteRT</strong>, <strong>ONNX Runtime</strong>, <strong>Core ML</strong>.</dd>
+    <dt>Model wrapper (A in the figure)</dt>
+    <dd>Written by the app developer. It gives the application logic simple inference functions and hides the runtime details: preprocessing input, loading the model into the runtime, executing it, and postprocessing output.</dd>
+  </dl>
+  <p>Flow: application logic calls the wrapper, the wrapper converts data and calls the runtime, and the runtime executes on local hardware.</p>
+
+  <h3>Getting a model onto a device</h3>
+  <ol>
+    <li><strong>Compile.</strong> Convert from the training format to the runtime’s format. For LiteRT, a PyTorch ResNet becomes a <code>.tflite</code> file: <code>ai_edge_torch.convert(resnet18.eval(), sample_input)</code>.</li>
+    <li><strong>Validate numerics.</strong> Run the same inputs on the training server and on the device and compare outputs, to confirm conversion did not hurt accuracy.</li>
+    <li><strong>Measure performance.</strong> Confirm the device hardware runs the model fast enough for the business need.</li>
+    <li><strong>Deploy.</strong> Ship the optimised model inside the app install or update.</li>
+  </ol>
+  <p>Tools such as Qualcomm AI Hub automate compilation, optimisation and validation.</p>
+
+  <div class="versus">
+    <div style="border-top-color: var(--green)">
+      <h4>Good fit</h4>
+      <ul>
+        <li>Privacy-first workloads where raw data must stay on the device (biometrics, health data)</li>
+        <li>Ultra-low latency: gesture recognition, robotics control loops, AR and VR, real-time audio</li>
+        <li>Disconnected or unreliable networks: industrial equipment, remote sensors, vehicles, drones</li>
+        <li>IoT, smart cities and robotics with task-specific, power-efficient models</li>
+      </ul>
+    </div>
+    <div style="border-top-color: var(--red)">
+      <h4>Constraints</h4>
+      <ul>
+        <li>Limited compute, memory and storage. Small models such as Gemma 3 270M fit, but most large models do not</li>
+        <li>Power: heavy models drain batteries</li>
+        <li>Updates are hard, since every device has to install them</li>
+        <li>Inconsistent hardware: a model tuned for Apple’s Neural Engine may run poorly on a Snapdragon</li>
+      </ul>
+    </div>
+  </div>
+  <p>When model size, traffic or operational complexity outweigh these benefits, serving moves to on-premises or cloud, which trade local execution for centralised compute, elastic scaling and simpler operations.</p>
+</section>
+
+<section id="c1-single">
+  <h2>Serving paradigm 2: single-model service</h2>
+  <p class="pages">Pages 19 to 24</p>
+  <p>The classic and most widely used cloud pattern. <strong>Each model, and each version of it, is deployed as its own web service</strong> with a prediction API over HTTP or gRPC. It is a standard microservices design: an API component in front receives requests and routes them to backend containers that run the model.</p>
+  <figure style="--w: 520px">
+    <a href="images/fig-1-05.png"><img src="images/fig-1-05.png" width="1021" height="508" loading="lazy" alt="Requests enter a model service API and routing logic component, which routes to single-model containers A, E and F in availability zones 1, 2 and 3."></a>
+    <figcaption><b>Figure 1-5.</b> Single-model service architecture.</figcaption>
+  </figure>
+  <div class="note">
+    <p class="label">Containers are the foundation</p>
+    <p>A container packages an application with its dependencies, libraries and configuration so it runs the same on a laptop, a test server and production. Most server-side model execution happens inside a Docker container or Kubernetes Pod that wraps model management, resource management and execution logic, and exposes prediction over gRPC or HTTP.</p>
+  </div>
+
+  <h3>Inside the serving container</h3>
+  <figure style="--w: 620px">
+    <a href="images/fig-1-06.png"><img src="images/fig-1-06.png" width="1284" height="609" loading="lazy" alt="A model serving container holding an API server, a model management component, an inference backend and model files on disk. Model management pulls from model storage (a), files land on disk (b), the model is initialised in the inference backend (c), which reads the files (d). The API server passes requests to the backend for preprocessing and execution and returns post-processed output."></a>
+    <figcaption><b>Figure 1-6.</b> Single-model serving container design.</figcaption>
+  </figure>
+  <dl class="terms">
+    <dt>API server</dt><dd>Exposes inference over HTTP or gRPC so outside applications can send requests.</dd>
+    <dt>Model management</dt><dd>Prepares the model: download it, extract it to local storage, load it into the backend (steps a to d in the figure). It also watches cloud storage and refreshes the model in every container when the training pipeline or ops team uploads a new one.</dd>
+    <dt>Inference backend</dt><dd>Executes the model, usually with a serving framework (TensorFlow Serving, TorchServe) or library (vLLM, TensorRT-LLM).</dd>
+  </dl>
+
+  <h3>Routing</h3>
+  <p>The service API should keep all containers equally busy. <strong>Round robin</strong> (c1, c2, c3, c1, …) looks sufficient but ignores how much requests differ: a 5,000-token prompt takes far longer than a 100-token one. So c1 can still be working on a large request when the next one is sent to it, while c2 sits idle.</p>
+  <div class="table-wrap">
+    <table>
+      <caption>Smarter routing strategies</caption>
+      <thead><tr><th>Strategy</th><th>How it routes</th></tr></thead>
+      <tbody>
+        <tr><th>Weighted round robin</th><td>Bigger servers get higher weights and more requests</td></tr>
+        <tr><th>Least connections</th><td>To the server with the fewest active connections</td></tr>
+        <tr><th>Least response time</th><td>To the server currently responding fastest</td></tr>
+        <tr><th>Dynamic load balancing</th><td>Uses live metrics: CPU, GPU, memory use or queue length</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Scaling</h3>
+  <dl class="terms">
+    <dt>Horizontal scaling (scaling out)</dt>
+    <dd>Run more instances of the container across machines. With <strong>autoscaling</strong>, the infrastructure watches metrics such as CPU and memory use, inference latency and active requests, and adds instances when thresholds are crossed. On Kubernetes this is the Horizontal Pod Autoscaler (HPA).</dd>
+    <dt>Vertical scaling (scaling up)</dt>
+    <dd>For models too big for one machine’s GPU memory (the book cites GPT-4 and Llama-2-70B): use more powerful GPUs such as H100s or A100s and split the model across several GPUs or machines.</dd>
+  </dl>
+<pre><code>python -m vllm.entrypoints.api_server \
+  --model meta-llama/Llama-2-13b-hf \
+  --tensor-parallel-size 4            <span class="c"># serve across 4 GPUs</span></code></pre>
+  <div class="note">
+    <p class="label">Prefer intra-node over inter-node</p>
+    <p>Multiple GPUs in <em>one</em> machine (intra-node) beats spreading a model across machines (inter-node). Inter-node serving adds network overhead, latency and synchronisation complexity. Where you can, optimise the model to fit on one machine.</p>
+  </div>
+
+  <h3>Why it is the default starting point</h3>
+  <ul>
+    <li>Best performance: no resource contention, lower latency</li>
+    <li>Easy scaling: each model scales on its own</li>
+    <li>Simpler deployment and debugging: isolated logs, metrics and updates</li>
+    <li>More reliable: one model crashing does not affect the others</li>
+    <li>Hardware can be matched to each model, which helps cost control</li>
+  </ul>
+  <div class="note warn">
+    <p class="label">Where it breaks down</p>
+    <p>Resource efficiency and cost. On an agent platform with 100 customers who each deploy 10 models, you would run <strong>1,000 separate services</strong>. Maintaining, patching and monitoring them is overwhelming, and many models may never be called while still holding compute.</p>
+  </div>
+</section>
+
+<section id="c1-multi">
+  <h2>Serving paradigm 3: multi-model service</h2>
+  <p class="pages">Pages 24 to 28</p>
+  <p><strong>Several models share one serving container</strong>, along with its GPU, CPU and memory, and are <strong>loaded and unloaded on demand</strong> according to traffic. In the 1,000-model case, a model is loaded only when a customer asks for a prediction and unloaded when it goes idle or memory is needed.</p>
+  <figure>
+    <a href="images/fig-1-07.png"><img src="images/fig-1-07.png" width="1443" height="746" loading="lazy" alt="A multi-model serving container. The API server asks the model and model cache management component whether a model is loaded and whether the cache is full (a). That component fetches from model storage (b), files are written to disk (c), it loads and unloads models in the model server inference backend (d), the backend reads model files (e), and the API server forwards requests to the backend (f). The LRU cache key is model name plus version and the value is the model ID in the backend."></a>
+    <figcaption><b>Figure 1-7.</b> Multi-model serving container design.</figcaption>
+  </figure>
+  <p>Compared with the single-model container, two components are different:</p>
+  <dl class="terms">
+    <dt>Model server inference backend</dt>
+    <dd>Serves many kinds of model behind one unified prediction API, treating each as a black box. Internally it holds several inference backends, one per model type (TensorFlow, ONNX, PyTorch and so on). You do not build this yourself: <strong>NVIDIA Triton Inference Server</strong> is the usual open source choice, run inside the container or Pod.</dd>
+    <dt>Model cache management</dt>
+    <dd>Loads models from storage into the backend, and protects the container from overload with a <strong>least recently used (LRU) cache</strong> of loaded models, so the least-used ones can be unloaded when resources run high.</dd>
+  </dl>
+
+  <h3>What happens when a request for model A arrives</h3>
+  <ul>
+    <li><strong>A is loaded:</strong> forward the request to the backend and return the result.</li>
+    <li><strong>A is not loaded:</strong> download it from model storage, load it into the model server, then forward the request.</li>
+    <li><strong>Memory or disk is above a threshold</strong> (for example 80% memory): find the least-used model in the cache, unload it from the backend and remove it from cache and disk.</li>
+  </ul>
+
+  <h3>Two new problems: routing and per-model scaling</h3>
+  <figure style="--w: 620px">
+    <a href="images/fig-1-08.png"><img src="images/fig-1-08.png" width="1367" height="510" loading="lazy" alt="Requests for models A and C arrive at 1000 requests per second, 80 percent for A and 20 percent for C. The routing logic faces two questions: which of three multi-model containers to send each model's requests to, and how to allocate compute between models A and C."></a>
+    <figcaption><b>Figure 1-8.</b> Serving and scaling challenges in multi-model serving.</figcaption>
+  </figure>
+  <ol>
+    <li><strong>Routing.</strong> A request should go to a container that already has the model loaded. Otherwise it pays extra latency from a <strong>cold start</strong> (the request waits while the model loads) or <strong>model swapping</strong> (evicting other models to make room).</li>
+    <li><strong>Per-model scaling.</strong> Traffic is uneven, and “hot” models need more instances than rarely used ones.</li>
+  </ol>
+  <figure style="--w: 660px">
+    <a href="images/fig-1-09.png"><img src="images/fig-1-09.png" width="1415" height="550" loading="lazy" alt="The routing layer keeps a map from models to hosts: model A has 2 replicas on containers C1 and C3, model B has 1 on C1, model C has 1 on C2, and model D is on C1 and C3. Requests are routed to the container that caches the requested model."></a>
+    <figcaption><b>Figure 1-9.</b> Routing with a model-to-host map and per-model replica counts.</figcaption>
+  </figure>
+  <p>The fix sits in the routing layer:</p>
+  <ul>
+    <li>A <strong>replica</strong> attribute in each model’s metadata says how many instances to host across the containers.</li>
+    <li>A <strong>route map</strong> (model to hosts) records which containers serve each model.</li>
+  </ul>
+  <p>Model A with replica 2 is placed on C1 and C3 and its requests are spread evenly between them. The router raises or lowers the replica count as traffic changes, and decides where new instances go, which resembles a bin packing problem.</p>
+
+  <h3>Where multi-model struggles</h3>
+  <ul>
+    <li>Models too large for one GPU: there is nothing to share, or constant unloading causes loading overhead and cold starts.</li>
+    <li>A model with high traffic that needs low latency and must stay loaded. Use a single-model service.</li>
+    <li>Models with different security policies.</li>
+    <li>Operational complexity: cache management, per-model routing and scaling, compatibility and dependency conflicts make deployment, debugging and monitoring harder.</li>
+  </ul>
+  <p>Single-model and multi-model serving complement each other, and real platforms use both.</p>
+</section>
+
+<section id="c1-platforms">
+  <h2>Serving paradigm 4: model serving platforms</h2>
+  <p class="pages">Pages 28 to 29</p>
+  <p>As a business grows, placing single-model and multi-model services side by side is not enough. Two challenges appear:</p>
+  <ul>
+    <li><strong>Tasks need several models working together.</strong> A voice assistant like Siri chains speech recognition, NLP, recommendation and text-to-speech for one command.</li>
+    <li><strong>Many applications share one platform</strong>, so GPUs, CPUs and memory must be allocated across models without contention.</li>
+  </ul>
+  <figure style="--w: 600px">
+    <a href="images/fig-1-10.png"><img src="images/fig-1-10.png" width="1253" height="738" loading="lazy" alt="A serving platform with a gateway, a routing component and a graph execution component on the left. On the right, serving services are divided into resource groups: the App 1 group holds two single-model services and one multi-model service, next to groups for App 2, App 3 through App N."></a>
+    <figcaption><b>Figure 1-10.</b> Model serving platform design.</figcaption>
+  </figure>
+  <dl class="terms">
+    <dt>Resource groups</dt>
+    <dd>Separate the workload by application and business scenario. Each group gets its own CPU, GPU and memory quota and can mix service types (App 1 has two single-model services and one multi-model service).</dd>
+    <dt>Graph execution</dt>
+    <dd>Supports multistep inference workflows, using an engine such as Airflow or Ray. Each app team defines its workflow and deploys it to the engine. At prediction time the engine runs the workflow and, at each step, asks the routing component for the right serving group and service.</dd>
+  </dl>
+  <p>A real platform also has security and access control, metrics and monitoring, and deployment and DevOps integration. The book leaves them out of the diagram to keep attention on serving.</p>
+</section>
+
+<section id="c1-recap">
+  <h2>Chapter 1 recap</h2>
+  <p class="pages">Summary on pages 29 to 30</p>
+  <div class="table-wrap">
+    <table>
+      <caption>The four paradigms side by side (my summary)</caption>
+      <thead><tr><th>Paradigm</th><th>Idea</th><th>Strength</th><th>Weakness</th></tr></thead>
+      <tbody>
+        <tr><th>On-device</th><td>Model runs on the user’s device through a runtime and wrapper</td><td>Low latency, offline, private, no cloud bill</td><td>Tight compute and power limits, hard updates, uneven hardware</td></tr>
+        <tr><th>Single-model service</th><td>One model version per dedicated web service</td><td>Best performance, isolation, simple scaling and debugging</td><td>Wasteful and unmanageable with many models</td></tr>
+        <tr><th>Multi-model service</th><td>Models share a container and load on demand behind an LRU cache</td><td>Most cost-efficient for many, rarely used models</td><td>Cold starts, swapping, complex routing and operations</td></tr>
+        <tr><th>Serving platform</th><td>Resource groups plus graph execution over both service types</td><td>Multi-model workflows and shared compute across many apps</td><td>The most moving parts</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <ul>
+    <li>A model is architecture, data and execution code. Treat it as a program.</li>
+    <li>Serving is an engineering discipline about deploying and integrating models, separate from training them.</li>
+    <li>Understanding serving matters even when you rent it, because of integration, cost trade-offs, privacy and fine-tuned models.</li>
+    <li>LLM inference is expensive, so optimisation is necessary for cost-effective deployment. The chapter summary says techniques such as KV cache with PagedAttention (vLLM) and RadixAttention (SGLang) can give about six times the throughput and a third of the latency with no extra infrastructure cost.</li>
+  </ul>
+
+  <h3>Test yourself</h3>
+  <div class="quiz">
+    <details><summary>What three kinds of file make up a model?</summary><p>Model data (weights, biases, configuration), model architecture, and model execution code.</p></details>
+    <details><summary>Why store architecture and weights separately?</summary><p>If the architecture changes, some checkpoint parameters no longer match (nonmatching keys). With separate files you can partially load the compatible ones, which supports fine-tuning, adding layers and incremental updates.</p></details>
+    <details><summary>Define throughput and latency.</summary><p>Throughput is the number of predictions processed per unit of time. Latency is the time to process a single prediction.</p></details>
+    <details><summary>Why is a training framework a poor choice for serving?</summary><p>Training optimises for throughput on large batches with backpropagation on big GPU clusters. Serving runs only the forward pass and optimises for low latency per request with efficient use of resources.</p></details>
+    <details><summary>Why does plain round robin fall short for LLM requests?</summary><p>Requests vary a lot in cost (5,000 tokens against 100). Round robin ignores that, so a busy container can receive the next request while another is idle. Alternatives: weighted round robin, least connections, least response time, dynamic load balancing.</p></details>
+    <details><summary>What are cold start and model swapping?</summary><p>Both add latency in multi-model serving. Cold start: the request waits while the model loads into memory. Model swapping: other models are evicted from memory to make room for the requested one.</p></details>
+    <details><summary>How does the multi-model router solve routing and per-model scaling?</summary><p>Each model has a replica count, and the router keeps a model-to-hosts map. Requests go to containers that already hold the model, and the replica count moves with traffic.</p></details>
+    <details><summary>What two things does a serving platform add?</summary><p>Resource groups with per-application quotas, and a graph execution engine (such as Airflow or Ray) for multistep inference workflows.</p></details>
+  </div>
+</section>
+
+<!-- ======================= CHAPTER 2 ======================= -->
+<div class="chapter-open" id="ch2">
+  <p class="num">Chapter 2</p>
+  <h2>Large language model serving</h2>
+  <p class="gist">How a decoder-only Transformer produces text, what the KV cache and the prefill and decode phases are, and how a serving framework, streaming and batching build on them.</p>
+</div>
+
+<section id="c2-intro" aria-label="Chapter 2 approach">
+  <p>The chapter starts from the least code needed to serve an LLM and builds up from there, so you get a mental model of token generation before any infrastructure. It aims for intuition and does not require the mathematics.</p>
+</section>
+
+<section id="c2-evolution">
+  <h2>How LLMs got here</h2>
+  <p class="pages">Pages 32 to 35</p>
+  <p>The history matters because it explains the design choices and execution behaviour that inference work depends on.</p>
+  <figure style="--w: 640px">
+    <a href="images/fig-2-01.png"><img src="images/fig-2-01.png" width="1363" height="660" loading="lazy" alt="Timeline from 1990 to 2023. N-grams in the statistical language model era, Word2vec and RNN/LSTM around 2013 to 2014 and the attention mechanism in 2015 in the neural era, Transformers in 2017 and BERT and GPT in 2018 in the pretrained era, then GPT-2, GPT-3, ChatGPT and GPT-4 in the large language model era."></a>
+    <figcaption><b>Figure 2-1.</b> The history and development of language models.</figcaption>
+  </figure>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>When</th><th>What</th><th>Why it mattered</th></tr></thead>
+      <tbody>
+        <tr><th>2013</th><td>Word2Vec (Mikolov et al., Google)</td><td>Dense word vectors that capture semantic relationships</td></tr>
+        <tr><th>2013 to 2014</th><td>RNNs, then LSTM and GRU</td><td>Model sequences. Gates and memory cells help with longer dependencies</td></tr>
+        <tr><th>2017</th><td>Transformer (“Attention Is All You Need”, Google)</td><td>Replaces recurrence with self-attention and positional encoding, giving parallel processing and long-range dependencies</td></tr>
+        <tr><th>2018</th><td>BERT and GPT</td><td>Pretrain on large unlabeled text, then fine-tune for a task</td></tr>
+        <tr><th>2020 onward</th><td>GPT-3, ChatGPT, GPT-4</td><td>Scaling model and data unlocks few-shot and zero-shot learning</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note warn">
+    <p class="label">The RNN limitation that Transformers removed</p>
+    <p>RNN-based models process input one time step at a time, so they are hard to parallelise and inefficient on GPUs, and they still struggle with long-range dependencies.</p>
+  </div>
+  <div class="versus">
+    <div>
+      <h4>BERT</h4>
+      <ul>
+        <li><strong>Bidirectional encoder</strong>: reads text in both directions</li>
+        <li>Good at understanding: classification, contextual embeddings</li>
+      </ul>
+    </div>
+    <div>
+      <h4>GPT</h4>
+      <ul>
+        <li><strong>Unidirectional decoder</strong>: predicts the next token from what came before</li>
+        <li>Good at generating: text, summaries, translation, answers</li>
+      </ul>
+    </div>
+  </div>
+  <p><strong>Scale:</strong> GPT-1 had 117 million parameters, GPT-3 had 175 billion, and DeepSeek R1 reached 671 billion. “Large language model” describes pretrained models with tens or hundreds of billions of parameters.</p>
+  <div class="note">
+    <p class="label">What “LLM” means in this book</p>
+    <p><em>LLM</em> and <em>Transformer</em> both mean a <strong>decoder-only Transformer</strong>: only the decoder stack of the original design, as popularised by OpenAI’s 2018 GPT paper. It is the most common design for generative models such as GPT, Llama and Qwen. The definition keeps moving. In 2018 BERT’s few hundred million parameters counted as large, and today’s models are also judged on following instructions, using tools and multimodality.</p>
+  </div>
+</section>
+
+<section id="c2-autoregressive">
+  <h2>Autoregressive generation</h2>
+  <p class="pages">Pages 35 to 37</p>
+  <div class="note key">
+    <p class="label">The defining behaviour</p>
+    <p>An LLM generates <strong>one token at a time</strong>. Each new token is predicted from the prompt plus <strong>all previously generated tokens</strong>, then appended to the input for the next step.</p>
+  </div>
+  <figure style="--w: 600px">
+    <a href="images/fig-2-02.png"><img src="images/fig-2-02.png" width="1283" height="1178" loading="lazy" alt="Four generation steps for the prompt 'Write a short introduction about US capital city.' Step one outputs Washington. That token is appended to the input and the next step outputs D.C. Then 'is', then 'the'. Each output is fed back in as input for the following step."></a>
+    <figcaption><b>Figure 2-2.</b> Transformers generate one token at a time. Each output token is appended to the input for the next step.</figcaption>
+  </figure>
+  <ul>
+    <li>The loop repeats until a <strong>stopping condition</strong>: a maximum length or a special stop token.</li>
+    <li>A <strong>token</strong> is defined by the tokenizer. It may be a whole word, a subword or punctuation. On average one token is about <strong>0.75 English words</strong>.</li>
+    <li>The book uses <em>input text</em>, <em>input sequence</em> and <em>prompt</em> interchangeably.</li>
+  </ul>
+</section>
+
+<section id="c2-architecture">
+  <h2>Decoder-only Transformer architecture</h2>
+  <p class="pages">Pages 37 to 43</p>
+  <figure style="--w: 640px">
+    <a href="images/fig-2-03.png"><img src="images/fig-2-03.png" width="1344" height="1060" loading="lazy" alt="A prompt enters the Transformer LLM. Step 1, tokenizer and embedding: input text goes through the token vocabulary to token IDs and through the embedding layer to token embeddings. Step 2, a stack of decoder blocks produces contextualised hidden states. Step 3, the LM head outputs token probabilities: Washington 27 percent, London 7 percent, New York 5 percent, Cat 2 percent, so Washington is chosen."></a>
+    <figcaption><b>Figure 2-3.</b> A decoder-only Transformer: tokenizer and embedding, a stack of decoder blocks, and an LM head.</figcaption>
+  </figure>
+
+  <h3>Step 1: tokenizer and embedding</h3>
+  <ul>
+    <li>Break the text into tokens from a fixed vocabulary.</li>
+    <li>Convert tokens into numeric <strong>token IDs</strong>.</li>
+    <li>Map each ID to an <strong>embedding vector</strong> through the embedding layer.</li>
+  </ul>
+  <p>Example: <code>"Write a short introduction about the US capital city"</code>, with its quotation marks, becomes 11 tokens, then IDs such as <code>[1100, 10930, 261, 4022, …]</code>, then one vector per ID like <code>[-0.12, 0.55, 0.98, …]</code>.</p>
+
+  <h3>Step 2: Transformer (decoder) blocks</h3>
+  <ul>
+    <li>The core of the model, where most computation happens in both training and serving.</li>
+    <li>Blocks are stacked (12, 24 or more layers) to build up contextual understanding.</li>
+    <li>The output is the <strong>hidden states</strong>: a tensor of shape <code>[N, d]</code>, where N is the number of input tokens and d is the hidden size (768, 2048, 4096 and so on).</li>
+    <li>Usually only the final hidden state of the <strong>last token</strong> is used to predict the next token.</li>
+  </ul>
+
+  <h3>Step 3: language modeling (LM) head</h3>
+  <ul>
+    <li>Maps hidden states to <strong>vocabulary logits</strong>, a score for every token in the vocabulary.</li>
+    <li>Selects the output token from them, usually the one with the highest probability.</li>
+  </ul>
+
+  <h3>Inspect the model configuration first</h3>
+<pre><code>model = AutoModelForCausalLM.from_pretrained(
+    "Qwen/Qwen2.5-0.5B", trust_remote_code=True, device_map="auto")
+config = model.config
+print(config.hidden_size, config.num_hidden_layers, config.num_attention_heads,
+      config.intermediate_size, config.vocab_size, config.max_position_embeddings)</code></pre>
+  <div class="table-wrap">
+    <table>
+      <caption>Qwen2.5-0.5B, the model used throughout the chapter</caption>
+      <thead><tr><th>Parameter</th><th class="n">Value</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><th>Hidden size</th><td class="n">896</td><td>Size of each token’s vector</td></tr>
+        <tr><th>Number of layers</th><td class="n">24</td><td>Transformer blocks</td></tr>
+        <tr><th>Attention heads</th><td class="n">14</td><td>Per attention layer</td></tr>
+        <tr><th>Intermediate size</th><td class="n">4,864</td><td>MLP inner layer</td></tr>
+        <tr><th>Vocabulary size</th><td class="n">151,936</td><td>Tokens the model knows</td></tr>
+        <tr><th>Max position embeddings</th><td class="n">32,768</td><td>Maximum sequence length</td></tr>
+        <tr><th>Total parameters</th><td class="n">494,032,768</td><td>About 0.5 billion</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="note">
+    <p class="label">Why inspect it</p>
+    <p>The configuration lets you estimate compute needs such as GPU memory, choose a serving strategy (quantisation, batching, distillation, multi-GPU, offloading) and plan optimisations such as layer-wise parallelism or model sharding.</p>
+  </div>
+
+  <h3>Inside one decoder block</h3>
+  <figure style="--w: 460px">
+    <a href="images/fig-2-04.png"><img src="images/fig-2-04.png" width="913" height="703" loading="lazy" alt="Embeddings flow from the tokenizer into the stack of decoder blocks, and hidden states flow out to the LM head. A callout shows each decoder block contains a self-attention layer and a feedforward neural network."></a>
+    <figcaption><b>Figure 2-4.</b> A decoder block is a self-attention layer plus a feedforward layer.</figcaption>
+  </figure>
+  <dl class="terms">
+    <dt>Self-attention layer</dt>
+    <dd>Adds <strong>context</strong>. It relates input tokens to each other by meaning and relative position, letting the model weigh every previous token differently when producing the next one.</dd>
+    <dt>Feedforward neural network (FFN)</dt>
+    <dd>Refines each token’s representation with a per-token transformation. It combines the context from attention with knowledge learned in training before the prediction is made.</dd>
+  </dl>
+  <p class="code-title">Qwen 2.5 decoder layer, printed with <code>named_children()</code></p>
+<pre><code>model: Qwen2Model
+  embed_tokens: Embedding
+  layers: ModuleList
+    0: Qwen2DecoderLayer
+      self_attn: Qwen2Attention
+        q_proj: Linear          <span class="c"># query</span>
+        k_proj: Linear          <span class="c"># key</span>
+        v_proj: Linear          <span class="c"># value</span>
+        o_proj: Linear          <span class="c"># output</span>
+      mlp: Qwen2MLP             <span class="c"># the feedforward network</span>
+        gate_proj: Linear
+        up_proj: Linear
+        down_proj: Linear
+        act_fn: SiLU
+      input_layernorm: Qwen2RMSNorm
+      post_attention_layernorm: Qwen2RMSNorm
+    1: Qwen2DecoderLayer
+    ...</code></pre>
+  <p>Knowing this structure helps when planning optimisations. Attention-heavy blocks, for instance, can benefit from fused attention kernels or custom CUDA implementations, which later chapters cover.</p>
+</section>
+
+<section id="c2-attention">
+  <h2>Attention: how a token gets its context</h2>
+  <p class="pages">Pages 43 to 46</p>
+  <p>In “I saw a dog chasing a squirrel, and it climbed up the tree”, <em>it</em> is ambiguous without context. Self-attention lets every token look at the other tokens and weigh how relevant each one is.</p>
+  <p>For the prompt “Write a short introduction about the US capital city”, at the token <code>capital</code> the model can:</p>
+  <ul>
+    <li>look back at <code>US</code> to see this is a country’s capital and not financial capital,</li>
+    <li>use <code>introduction</code> to keep the writing concise and general,</li>
+    <li>use <code>Write</code> to recognise an instruction.</li>
+  </ul>
+
+  <h3>The calculation</h3>
+  <p>For every token the model computes three vectors: <strong>query (Q)</strong>, <strong>key (K)</strong> and <strong>value (V)</strong>.</p>
+  <ol>
+    <li>Take the dot product of the token’s query with the keys of all tokens in the sequence.</li>
+    <li>Scale the result.</li>
+    <li>Apply softmax to turn the scores into weights.</li>
+    <li>Use the weights to take a weighted sum of the value vectors.</li>
+  </ol>
+  <p>The result is the token’s updated representation, enriched with context from the whole sequence.</p>
+  <div class="formula">Attention(<i>Q</i>, <i>K</i>, <i>V</i>) = softmax<span style="font-size:1.5em;vertical-align:middle">(</span><span class="frac"><span><i>Q</i><i>K</i><sup>T</sup></span><span>√<i>d<sub>k</sub></i></span></span><span style="font-size:1.5em;vertical-align:middle">)</span> <i>V</i></div>
+
+  <h3>Multi-head attention</h3>
+  <p>The model runs several attention calculations per token in parallel, called <strong>heads</strong>, each with its own Q, K and V projections. Different heads pick up different relationships (syntactic, positional, semantic). Their outputs are concatenated and passed through a linear layer.</p>
+  <figure style="--w: 560px">
+    <a href="images/fig-2-05.png"><img src="images/fig-2-05.png" width="1157" height="619" loading="lazy" alt="Input tokens fan out to attention heads 0 through 7. Each head has its own V, K and Q matrices and computes an attention output Z. The outputs Z0 through Z7 are combined into a single output Z."></a>
+    <figcaption><b>Figure 2-5.</b> Multi-head self-attention, conceptually.</figcaption>
+  </figure>
+  <figure style="--w: 500px">
+    <a href="images/fig-2-06.png"><img src="images/fig-2-06.png" width="1265" height="935" loading="lazy" alt="BertViz head view at layer 10. The token 'capital' on the left has lines to tokens on the right, with the strongest lines going to 'write' and 'US'."></a>
+    <figcaption><b>Figure 2-6.</b> Attention for the token “capital” at layer 10, drawn with BertViz. Line thickness is attention weight and colour is the head. “capital” attends most strongly to “US” and “write”.</figcaption>
+  </figure>
+  <p>To reproduce this, load the model and tokenizer with <code>output_attentions=True</code>, run the model, and pass <code>outputs.attentions</code> and the token list to BertViz’s <code>head_view(attention, tokens)</code>.</p>
+  <div class="note key">
+    <p class="label">What a serving engineer needs from this</p>
+    <p>You need the concept, and the matrix maths is optional. Attention is <strong>compute-intensive</strong>, most of all during prefill, and its <strong>memory and latency costs scale with input sequence length</strong>. This is the knowledge behind tuning inference, KV caching and spreading work across GPUs.</p>
+  </div>
+</section>
+
+<section id="c2-walkthrough">
+  <h2>Generation, line by line</h2>
+  <p class="pages">Pages 46 to 51</p>
+  <p>The purpose here is a serving-oriented picture of how an LLM executes, because that execution pattern drives almost every design decision in a serving system. The demos use a single request and a single sequence and are not production code.</p>
+
+  <h3>The easy way: a Hugging Face pipeline</h3>
+<pre><code>generator = pipeline('text-generation', model='Qwen/Qwen2.5-0.5B')
+prompt = "Write a short introduction about the US capital city."
+generated_text = generator(prompt, max_length=50, num_return_sequences=1)
+print(generated_text[0]['generated_text'])</code></pre>
+
+  <h3>What <code>generator()</code> does underneath</h3>
+  <figure style="--w: 560px">
+    <a href="images/fig-2-07.png"><img src="images/fig-2-07.png" width="1154" height="678" loading="lazy" alt="The prompt plus tokens Washington and D.C. go into the Transformer LLM, which outputs 'is'. That token is appended to the input sequence, and the next pass outputs 'The'."></a>
+    <figcaption><b>Figure 2-7.</b> The token-by-token generation workflow.</figcaption>
+  </figure>
+  <p><code>AutoModelForCausalLM</code> replaces the pipeline here because it gives full control over inputs and decoding.</p>
+  <p class="code-title">The generation loop, condensed from Example 2-1</p>
+<pre><code>tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(model_name, trust_remote_code=True).to("cuda")
+
+idx = tokenizer(prompt, return_tensors="pt").input_ids.to(model.device)
+
+for _ in range(max_new_tokens):
+    with torch.no_grad():
+        outputs = model(idx)                      <span class="c"># the WHOLE sequence, every step</span>
+    logits = outputs.logits[:, -1, :]             <span class="c"># raw scores, last position only</span>
+    probas = torch.softmax(logits, dim=-1)        <span class="c"># scores to probabilities</span>
+    idx_next = torch.multinomial(probas, num_samples=1)   <span class="c"># sample the next token</span>
+    idx = torch.cat((idx, idx_next), dim=1)       <span class="c"># append it to the input</span>
+    if idx_next.item() == tokenizer.eos_token_id: <span class="c"># stop at end-of-sequence</span>
+        break
+
+generated_text = tokenizer.decode(idx[0], skip_special_tokens=True)</code></pre>
+  <p><strong>Logits</strong> are the raw prediction scores for each candidate token.</p>
+
+  <figure>
+    <a href="images/fig-2-08.png"><img src="images/fig-2-08.png" width="2331" height="874" loading="lazy" alt="Bar chart of time spent generating each of 100 tokens without a cache. The first token takes about 0.105 seconds. Later tokens start near 0.075 seconds and rise in steps to about 0.11 seconds by token 100."></a>
+    <figcaption><b>Figure 2-8.</b> Time per token for the run above. 100 tokens took 9.1205 seconds, about 0.09 seconds each.</figcaption>
+  </figure>
+  <div class="note warn">
+    <p class="label">The inefficiency</p>
+    <p>Apart from the first token, per-token time <strong>keeps rising</strong>. Each new token lengthens the input, and the model recomputes attention for <em>all</em> previous tokens on every step. That repeated work over tokens it has already processed is expensive and unnecessary.</p>
+  </div>
+  <figure style="--w: 600px">
+    <a href="images/fig-2-09.png"><img src="images/fig-2-09.png" width="1271" height="1019" loading="lazy" alt="The input tokens 'The history of human' all pass through the tokenizer and embedding, through every decoder block, to hidden states and the LM head, which outputs 'communication'. That token is appended to the input and the whole sequence is processed again."></a>
+    <figcaption><b>Figure 2-9.</b> Without a cache, the LLM reprocesses the entire sequence for every new token.</figcaption>
+  </figure>
+</section>
+
+<section id="c2-kv-cache">
+  <h2>KV cache</h2>
+  <p class="pages">Pages 51 to 54</p>
+  <div class="note key">
+    <p class="label">The idea</p>
+    <p>Store the attention <strong>keys and values</strong> computed at each layer for tokens already processed. On each new step, <strong>process only the newest token</strong> and reuse the cached results for everything before it. Generation changes from full-sequence recomputation to incremental work, <strong>trading more memory for much less compute</strong>.</p>
+  </div>
+  <figure style="--w: 640px">
+    <a href="images/fig-2-10.png"><img src="images/fig-2-10.png" width="1382" height="1103" loading="lazy" alt="With a KV cache inside the decoder blocks: (1) only the newly generated token 'communication' is passed to the model, (2) the cached calculation for earlier tokens is reused for the next token, and (3) the calculation for the new token is saved to the cache for future steps. The LM head outputs 'is'."></a>
+    <figcaption><b>Figure 2-10.</b> With KV caching, only the new token is processed and earlier key-value pairs are reused.</figcaption>
+  </figure>
+  <p class="code-title">The same loop with the KV cache, condensed from Example 2-2</p>
+<pre><code>past_key_values = None                 <span class="c"># (1) the cache starts empty</span>
+input_ids = idx                        <span class="c"># the full prompt, first step only</span>
+
+for _ in range(max_new_tokens):
+    with torch.no_grad():
+        outputs = model(input_ids=input_ids,
+                        past_key_values=past_key_values,   <span class="c"># (2) reuse the cache</span>
+                        use_cache=True)
+    past_key_values = outputs.past_key_values              <span class="c"># (3) save the updated cache</span>
+
+    logits = outputs.logits[:, -1, :]
+    probas = torch.softmax(logits, dim=-1)
+    next_id = torch.multinomial(probas, num_samples=1)
+
+    input_ids = next_id                <span class="c"># (4) only the NEW token goes back in</span>
+    idx = torch.cat((idx, next_id), dim=1)                 <span class="c"># idx still holds the full text</span>
+    if next_id.item() == tokenizer.eos_token_id:
+        break</code></pre>
+  <div class="table-wrap">
+    <table>
+      <caption>What changed between the two loops</caption>
+      <thead><tr><th></th><th>No cache (Example 2-1)</th><th>KV cache (Example 2-2)</th></tr></thead>
+      <tbody>
+        <tr><th>Model input each step</th><td>Entire sequence so far</td><td>Only the newly generated token, plus <code>past_key_values</code></td></tr>
+        <tr><th>After each step</th><td>Append the token to the input</td><td>Update the cache from <code>outputs.past_key_values</code></td></tr>
+        <tr><th>Time for 100 tokens</th><td class="n">9.1205 s</td><td class="n">3.1416 s</td></tr>
+        <tr><th>Per-token time</th><td>Climbs as the sequence grows</td><td>Stable after the first token</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>By my arithmetic that is roughly 2.9 times faster on this small model and short run.</p>
+  <figure>
+    <a href="images/fig-2-11.png"><img src="images/fig-2-11.png" width="2606" height="817" loading="lazy" alt="Two bar charts of per-token generation time over 100 tokens. Without a cache, time climbs from about 0.075 to 0.11 seconds. With a cache, the first token takes about 0.12 seconds and every later token stays near 0.03 seconds."></a>
+    <figcaption><b>Figure 2-11.</b> Per-token generation time without the KV cache (left) and with it (right).</figcaption>
+  </figure>
+  <p>Many more advanced ways to design and manage KV caches exist. The book returns to them in chapters 6 and 7.</p>
+</section>
+
+<section id="c2-prefill-decode">
+  <h2>Prefill and decode</h2>
+  <p class="pages">Pages 54 to 56</p>
+  <p>These two terms come up constantly in LLM performance work.</p>
+  <div class="versus">
+    <div>
+      <h4>Prefill</h4>
+      <ul>
+        <li>Also called <strong>prompt processing</strong></li>
+        <li>The whole prompt is processed at once, in parallel</li>
+        <li><strong>Compute-intensive:</strong> attention runs across all prompt tokens, quadratic in sequence length</li>
+        <li>Produces the first token</li>
+        <li>Dominates with <strong>long prompts</strong>, such as a 500-page PDF</li>
+      </ul>
+    </div>
+    <div>
+      <h4>Decode</h4>
+      <ul>
+        <li>Also called <strong>token-by-token generation</strong></li>
+        <li>One token per step, repeated. Attention work focuses on the newest token</li>
+        <li><strong>Memory-intensive:</strong> model weights are loaded again and again and the KV cache keeps growing</li>
+        <li>Produces every token after the first</li>
+        <li>Dominates with <strong>short prompts and long outputs</strong>, such as chatbot replies and stories</li>
+      </ul>
+    </div>
+  </div>
+  <figure style="--w: 620px">
+    <a href="images/fig-2-12.png"><img src="images/fig-2-12.png" width="1429" height="1179" loading="lazy" alt="The four-step generation diagram again, with braces on the right. The first step, which processes the prompt and outputs Washington, is labelled Prefill. The following steps, which output D.C., 'is' and 'the', are labelled Decode."></a>
+    <figcaption><b>Figure 2-12.</b> The prefill and decode phases in text generation.</figcaption>
+  </figure>
+  <figure style="--w: 600px">
+    <a href="images/fig-2-13.png"><img src="images/fig-2-13.png" width="1441" height="949" loading="lazy" alt="Per-token generation time with the cache enabled. The first bar, labelled Prefill, is about 0.12 seconds. All remaining bars, labelled Decoding, sit near 0.03 seconds."></a>
+    <figcaption><b>Figure 2-13.</b> With the KV cache on, the tall first bar is prefill and the short steady bars are decode.</figcaption>
+  </figure>
+  <div class="note key">
+    <p class="label">Why the distinction matters</p>
+    <p>The two phases stress hardware differently. Knowing which one dominates your workload tells you which bottleneck to work on, and it guides optimisation and capacity planning.</p>
+  </div>
+</section>
+
+<section id="c2-frameworks">
+  <h2>Serving with a framework: vLLM</h2>
+  <p class="pages">Pages 57 to 59</p>
+  <p>Hand-written loops teach the mechanics. Real applications use <strong>serving frameworks</strong> such as vLLM and SGLang: systems that load pretrained models and expose them through APIs (usually REST or gRPC) for real-time or batch inference. Training frameworks like PyTorch and TensorFlow are built around model development and gradients.</p>
+  <p>What a serving framework adds beyond running inference:</p>
+  <ul>
+    <li>Efficient decoding with KV-cache reuse</li>
+    <li>Request scheduling, such as batching or micro-batching</li>
+    <li>Multi-user concurrency</li>
+    <li>Token streaming, cancellation and interruption handling</li>
+    <li>New research optimisations (paged attention, speculative decoding) without you reimplementing them</li>
+  </ul>
+
+  <h3>Basic use</h3>
+<pre><code>from vllm import LLM, SamplingParams
+
+llm = LLM(model="Qwen/Qwen2.5-0.5B", dtype="float16")            <span class="c"># load the model</span>
+inference_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=128)
+outputs = llm.generate([prompt], inference_params)               <span class="c"># run generation</span>
+
+for output in outputs:
+    print(f"Generated text: {output}")</code></pre>
+  <p>vLLM has two groups of settings. <strong>Model-loading options</strong> on <code>LLM(...)</code> cover memory management, PagedAttention and prefix caching, KV cache limits, performance features such as chunked prefill, and distributed serving. <strong>Inference parameters</strong> on <code>SamplingParams(...)</code> follow the conventions of OpenAI’s text completion API:</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Parameter</th><th>What it controls</th></tr></thead>
+      <tbody>
+        <tr><th><code>temperature</code></th><td>Randomness. 0.0 is deterministic</td></tr>
+        <tr><th><code>top_p</code></th><td>Nucleus sampling</td></tr>
+        <tr><th><code>top_k</code></th><td>Top-k sampling</td></tr>
+        <tr><th><code>max_tokens</code></th><td>Maximum tokens to generate</td></tr>
+        <tr><th><code>stop</code></th><td>Stop sequences, such as <code>["\n", "###"]</code></td></tr>
+        <tr><th><code>frequency_penalty</code>, <code>presence_penalty</code>, <code>repetition_penalty</code></th><td>Discourage repetition</td></tr>
+        <tr><th><code>skip_special_tokens</code></th><td>Leave special tokens out of the output</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>vLLM against Hugging Face Transformers</h3>
+  <div class="table-wrap">
+    <table>
+      <caption>Same prompt, same model (Qwen2.5-0.5B), <code>max_length=128</code></caption>
+      <thead><tr><th>Library</th><th class="n">Time</th></tr></thead>
+      <tbody>
+        <tr><th>Hugging Face pipeline</th><td class="n">19.58 s</td></tr>
+        <tr><th>vLLM</th><td class="n">1.12 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>That is a <strong>17 times speedup on a single prompt</strong>, and the gap widens with concurrent or batched inference. In many benchmarks vLLM reaches 10 to 20 times the throughput of the Hugging Face <code>.generate()</code> API.</p>
+  <div class="note">
+    <p class="label">Best practice: start simple, then optimise</p>
+    <p>Prototype with Hugging Face Transformers because it is easy to use. Move to a framework like vLLM for production, then tune its serving configuration for latency, throughput and concurrency for your model and use case.</p>
+  </div>
+</section>
+
+<section id="c2-streaming">
+  <h2>Streaming</h2>
+  <p class="pages">Pages 60 to 61</p>
+  <p>The model produces tokens one by one, but <code>llm.generate()</code> <strong>waits for the whole output</strong> before returning anything. In a chatbot that is a delay of seconds to minutes with nothing on screen, which hurts engagement and retention.</p>
+  <div class="note key">
+    <p class="label">LLM streaming</p>
+    <p>Return output incrementally, token by token or in small chunks, as it is generated.</p>
+  </div>
+  <p class="code-title">Streaming with vLLM, condensed</p>
+<pre><code>engine = AsyncLLMEngine.from_engine_args(
+    AsyncEngineArgs(model="Qwen/Qwen2.5-0.5B", dtype="float16"))
+
+async def generate_text(prompt: str, max_tokens: int = 100):
+    sampling_params = SamplingParams(temperature=0.0, max_tokens=max_tokens, stop=["\n"])
+    results_generator = engine.generate(
+        prompt=prompt,
+        sampling_params=sampling_params,
+        request_id="test-request")            <span class="c"># unique ID for this request</span>
+
+    final_output = None
+    async for request_output in results_generator:
+        final_output = request_output
+        for chunk in request_output.outputs:
+            print(chunk.text, end="", flush=True)   <span class="c"># a web service would yield here</span>
+    return final_output</code></pre>
+  <ul>
+    <li>Use <code>AsyncLLMEngine</code> where the blocking version used <code>LLM</code>.</li>
+    <li><code>generate()</code> returns an asynchronous stream that you read with <code>async for</code>.</li>
+    <li><strong>Cancellation:</strong> <code>engine.abort(request_id)</code> stops a generation partway. The user can cut off an answer that is going wrong, and the server stops spending compute on it, which matters for cost in production.</li>
+  </ul>
+</section>
+
+<section id="c2-batching">
+  <h2>Batching</h2>
+  <p class="pages">Pages 61 to 63</p>
+  <p>One prompt at a time is fine for prototyping and a bottleneck at volume. The book’s examples: summarising 100,000 documents, indexing 5,000 PDFs, serving 20,000 concurrent chatbot users.</p>
+  <div class="note key">
+    <p class="label">Batching</p>
+    <p>Group several input requests and process them together in a <strong>single forward pass</strong>, so the model generates outputs for many prompts in parallel.</p>
+  </div>
+  <figure style="--w: 640px">
+    <a href="images/fig-2-14.png"><img src="images/fig-2-14.png" width="1380" height="501" loading="lazy" alt="Three input sequences are sent to the LLM as a single request, and three output sequences are produced in parallel."></a>
+    <figcaption><b>Figure 2-14.</b> Batch inference: several input sequences processed, and output sequences generated, in parallel.</figcaption>
+  </figure>
+  <p>It works well for Transformers because matrix multiplications and attention can run in parallel across sequences. The model weights are shared and the GPU is built for parallel work, so extra requests add little overhead.</p>
+<pre><code>prompts = [
+    "What is the meaning of life?",
+    "Write a short story about a robot learning to love.",
+    "Explain quantum physics in simple terms.",
+    "Translate 'Hello, world!' into Spanish.",
+]
+sampling_params = SamplingParams(temperature=0.8, top_p=0.95, max_tokens=100)
+
+vllm_outputs = llm.generate(prompts, sampling_params)      <span class="c"># all four in one batch</span>
+
+for prompt in prompts:                                     <span class="c"># versus one at a time</span>
+    llm.generate([prompt], sampling_params)</code></pre>
+  <div class="table-wrap">
+    <table>
+      <caption>Four prompts on vLLM</caption>
+      <thead><tr><th>How</th><th class="n">Total time</th></tr></thead>
+      <tbody>
+        <tr><th>One batch</th><td class="n">1.0626 s</td></tr>
+        <tr><th>One by one</th><td class="n">2.3865 s</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A <strong>2.2 times throughput improvement</strong> from batching alone.</p>
+  <div class="note">
+    <p class="label">Next step: continuous batching</p>
+    <p>New requests are added to the running batch as others finish. A 2023 Anyscale study found it can raise LLM inference throughput by up to <strong>23 times</strong> while greatly reducing p50 latency. Chapter 6 of the book covers it.</p>
+  </div>
+</section>
+
+<section id="c2-recap">
+  <h2>Chapter 2 recap</h2>
+  <p class="pages">Summary on pages 63 to 64</p>
+  <ul>
+    <li>In this book an LLM is a decoder-only Transformer: tokenizer and embedding, then stacked decoder blocks (self-attention plus FFN), then an LM head.</li>
+    <li>Generation is autoregressive: one token per step, each fed back as input.</li>
+    <li>Attention gives tokens their context. It is the expensive part and its cost grows with sequence length.</li>
+    <li>The KV cache stores per-layer keys and values so each step handles only the new token. It uses more memory and far less compute.</li>
+    <li>Prefill processes the whole prompt in parallel and is compute-heavy. Decode goes token by token and is memory-heavy. Find out which one dominates your workload.</li>
+    <li>Serving frameworks such as vLLM package these optimisations. Streaming improves responsiveness and batching improves throughput.</li>
+  </ul>
+
+  <h3>Test yourself</h3>
+  <div class="quiz">
+    <details><summary>What are the three components of a decoder-only Transformer, in order?</summary><p>Tokenizer and embedding, Transformer (decoder) blocks, and the language modeling (LM) head.</p></details>
+    <details><summary>What does “autoregressive” mean for an LLM?</summary><p>It generates one token at a time, predicting each from the prompt and all previously generated tokens, and appends each new token to the input for the next step. It stops at a maximum length or a stop token.</p></details>
+    <details><summary>What is the shape of the hidden states, and which part is used to predict the next token?</summary><p><code>[N, d]</code>: N input tokens by hidden size d. Usually only the final hidden state of the last token is used.</p></details>
+    <details><summary>What are Q, K and V, and how do they produce attention?</summary><p>Query, key and value vectors computed for each token. Take the dot product of a token’s query with all keys, scale, apply softmax to get weights, then take the weighted sum of the values.</p></details>
+    <details><summary>Without a KV cache, why does each token take longer than the one before?</summary><p>Every new token is appended to the input and the model recomputes attention over the entire, longer sequence at each step.</p></details>
+    <details><summary>What does the KV cache store and what is the trade-off?</summary><p>The attention keys and values computed at each layer for earlier tokens. It trades higher memory use for large compute savings, because only the new token is processed.</p></details>
+    <details><summary>Which phase is compute-intensive and which is memory-intensive, and why?</summary><p>Prefill is compute-intensive: attention across all prompt tokens at once, quadratic in length. Decode is memory-intensive: model weights are loaded repeatedly and the KV cache grows.</p></details>
+    <details><summary>A user uploads a 500-page PDF and asks for a one-line answer. Which phase is the bottleneck?</summary><p>Prefill, because the prompt is very long and the output is short.</p></details>
+    <details><summary>How do you stream with vLLM and cancel a request?</summary><p>Use <code>AsyncLLMEngine</code>, read the stream from <code>engine.generate(...)</code> with <code>async for</code>, and call <code>engine.abort(request_id)</code> to cancel.</p></details>
+    <details><summary>What is batching, and what is continuous batching?</summary><p>Batching groups several requests into a single forward pass so they are processed in parallel. Continuous batching adds new requests to the running batch as others complete.</p></details>
+  </div>
+</section>
+
+<!-- ======================= REFERENCE ======================= -->
+<section id="numbers">
+  <h2>Numbers worth remembering</h2>
+  <p class="pages">All from the book’s examples in chapters 1 and 2</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Number</th><th>What it refers to</th><th class="n">Page</th></tr></thead>
+      <tbody>
+        <tr><th>30% to 60% cheaper</th><td>Open source LLM on EC2 compared with managed serving on SageMaker</td><td class="n">9</td></tr>
+        <tr><th>50% more</th><td>OpenAI’s premium for serving a fine-tuned model (early 2025)</td><td class="n">9</td></tr>
+        <tr><th>10 times</th><td>Cost of an LLM request relative to keyword search (Hennessy, 2023)</td><td class="n">12</td></tr>
+        <tr><th>16,384 H100 GPUs</th><td>Used to train Llama 3 405B</td><td class="n">13</td></tr>
+        <tr><th>14 to 24 times</th><td>vLLM throughput over HF Transformers, one completion per request</td><td class="n">14</td></tr>
+        <tr><th>2.2 to 2.5 times</th><td>vLLM throughput over TGI, one completion per request</td><td class="n">14</td></tr>
+        <tr><th>38 to 600 TPS</th><td>DeepSeek R1 on vLLM after enabling FP8 MLA kernels and a larger batch size</td><td class="n">15</td></tr>
+        <tr><th>0.75 words</th><td>Average English words per token</td><td class="n">35</td></tr>
+        <tr><th>117M, 175B, 671B</th><td>Parameters in GPT-1, GPT-3 and DeepSeek R1</td><td class="n">34</td></tr>
+        <tr><th>9.12 s and 3.14 s</th><td>100 tokens without and with the KV cache (Qwen2.5-0.5B)</td><td class="n">50, 53</td></tr>
+        <tr><th>19.58 s and 1.12 s</th><td>Hugging Face pipeline and vLLM on the same prompt (17 times)</td><td class="n">59</td></tr>
+        <tr><th>2.2 times</th><td>Four prompts batched against one by one on vLLM</td><td class="n">63</td></tr>
+        <tr><th>Up to 23 times</th><td>Throughput gain from continuous batching (Anyscale, 2023)</td><td class="n">63</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="glossary">
+  <h2>Glossary</h2>
+  <p class="pages">Terms introduced in chapters 1 and 2</p>
+  <dl class="terms">
+    <dt>Autoregressive</dt><dd>Generating one token at a time, each conditioned on everything before it.</dd>
+    <dt>Autoscaling</dt><dd>Automatically adding or removing serving instances based on monitored metrics.</dd>
+    <dt>Batching</dt><dd>Processing several requests together in one forward pass.</dd>
+    <dt>Cold start</dt><dd>Latency from holding a request while its model loads into memory.</dd>
+    <dt>Containerization</dt><dd>Packaging an application with its dependencies so it runs consistently anywhere.</dd>
+    <dt>Continuous batching</dt><dd>Adding new requests to a running batch as others complete.</dd>
+    <dt>Decode phase</dt><dd>Token-by-token generation after the first token. Memory-intensive.</dd>
+    <dt>Delegate</dt><dd>A runtime component that offloads operations from the CPU to a GPU or other accelerator.</dd>
+    <dt>Embedding</dt><dd>The numeric vector a token ID is mapped to.</dd>
+    <dt>FFN</dt><dd>Feedforward neural network: the per-token refinement step in each decoder block.</dd>
+    <dt>Hidden states</dt><dd>Contextualised token representations output by the decoder blocks, with shape [N, d].</dd>
+    <dt>Horizontal scaling</dt><dd>Scaling out by running more instances across machines.</dd>
+    <dt>Inference</dt><dd>A prediction on new data. Used interchangeably with serving and prediction.</dd>
+    <dt>Intra-node and inter-node serving</dt><dd>Several GPUs on one machine, versus spreading a model across machines.</dd>
+    <dt>KV cache</dt><dd>Stored attention keys and values for earlier tokens, reused so only the new token is computed.</dd>
+    <dt>Latency</dt><dd>Time to process a single prediction.</dd>
+    <dt>LM head</dt><dd>The layer that turns hidden states into vocabulary logits and picks the output token.</dd>
+    <dt>Logits</dt><dd>Raw prediction scores for each token in the vocabulary.</dd>
+    <dt>LRU cache</dt><dd>Least recently used cache, which decides which loaded model to evict.</dd>
+    <dt>Model runtime</dt><dd>Software that executes models efficiently on specific hardware (LiteRT, ONNX Runtime, Core ML).</dd>
+    <dt>Model swapping</dt><dd>Evicting models from memory to make room for a newly requested one.</dd>
+    <dt>Model wrapper</dt><dd>App-side module that hides runtime details: preprocess, load, execute, postprocess.</dd>
+    <dt>Multi-head attention</dt><dd>Several attention calculations in parallel, each with its own Q, K and V projections.</dd>
+    <dt>Nonmatching keys</dt><dd>Checkpoint parameters that no longer fit a changed architecture.</dd>
+    <dt>Partial loading</dt><dd>Loading the compatible parameters and skipping the rest.</dd>
+    <dt>Prefill phase</dt><dd>Processing the whole prompt at once to produce the first token. Compute-intensive.</dd>
+    <dt>Replica</dt><dd>The number of instances of a model hosted across serving containers.</dd>
+    <dt>Self-attention</dt><dd>The mechanism that lets each token weigh the relevance of other tokens.</dd>
+    <dt>Serving framework</dt><dd>A system built to load models and expose them for efficient inference (vLLM, SGLang, Triton).</dd>
+    <dt>Streaming</dt><dd>Returning output token by token as it is generated.</dd>
+    <dt>Throughput</dt><dd>Predictions processed per unit of time.</dd>
+    <dt>Token</dt><dd>A unit of text defined by the tokenizer: a word, subword or punctuation mark.</dd>
+    <dt>Vertical scaling</dt><dd>Scaling up with more powerful GPUs, and splitting a large model across them.</dd>
+  </dl>
+</section>
+
+<footer>
+  <p>Personal study notes, written in my own words, on <cite>Hands-On LLM Serving and Optimization: Hosting LLMs at Scale</cite> by Chi Wang and Peiheng Hu (O’Reilly Media, 2026, ISBN 979-8-341-62149-7). Figures and code excerpts are from the book and belong to their copyright holders. The book’s code is at <a href="https://github.com/orca3/llm-model-serving">github.com/orca3/llm-model-serving</a>.</p>
+</footer>
+
+</main>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var button = document.querySelector('.theme-toggle');
+  var system = window.matchMedia('(prefers-color-scheme: dark)');
+  function label() {
+    var dark = root.getAttribute('data-theme') === 'dark';
+    button.textContent = dark ? 'Light theme' : 'Dark theme';
+    button.setAttribute('aria-pressed', dark ? 'true' : 'false');
+  }
+  button.hidden = false;
+  label();
+  button.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    try { localStorage.setItem('theme', next); } catch (e) {}
+    label();
+  });
+  system.addEventListener('change', function (e) {
+    var saved = null;
+    try { saved = localStorage.getItem('theme'); } catch (err) {}
+    if (saved) return;
+    root.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+    label();
+  });
+})();
+
+(function () {
+  var toc = document.querySelector('.toc');
+  var narrow = window.matchMedia('(max-width: 60rem)');
+  if (narrow.matches) toc.removeAttribute('open');
+  narrow.addEventListener('change', function (e) { toc.open = !e.matches; });
+
+  var links = Array.prototype.slice.call(document.querySelectorAll('.toc a'));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute('href').slice(1)] = a; });
+
+  links.forEach(function (a) {
+    a.addEventListener('click', function () { if (narrow.matches) toc.removeAttribute('open'); });
+  });
+
+  if (!('IntersectionObserver' in window)) return;
+  var current = null;
+  var observer = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      if (!entry.isIntersecting) return;
+      var link = byId[entry.target.id];
+      if (!link || link === current) return;
+      if (current) current.classList.remove('active');
+      link.classList.add('active');
+      current = link;
+    });
+  }, { rootMargin: '0px 0px -75% 0px' });
+  Object.keys(byId).forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) observer.observe(el);
+  });
+})();
+</script>
+</body>
+</html>
